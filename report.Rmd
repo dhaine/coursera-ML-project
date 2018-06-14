@@ -1,0 +1,124 @@
+
+---
+title: "Quality of Activity --- Machine Learning Project"
+output:
+  html_document:
+    keep_md: true
+---
+
+## Objective
+
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit* it is now
+possible to collect a large amount of data about personal activity relatively
+inexpensively.
+These type of devices are part of the quantified self movement --- a group of
+enthusiasts who take measurements about themselves regularly to improve their
+health, to find patterns in their behavior, or because they are tech geeks.
+One thing that people regularly do is quantify how much of a particular activity
+they do, but they rarely quantify how well they do it.
+In this project, the manner in which six participants do their exercises is
+predicted using data from accelerometers on the belt, forearm, arm, and dumbell.
+The manner they do their exercises is identified as `classe` A to E (A is
+correct execution of the exercise, B to E are common mistakes).
+
+Using the given data, an algorithm using the sensors' readings is developed to
+predict the A to E classes.
+
+## Data Processing
+
+### Set libraries used in the analysis
+
+```{r loadLibraries, warning=FALSE, results="hide", message=FALSE}
+library(tidyverse)
+library(caret)
+```
+
+### Load the data
+
+```{r loadData}
+train_url <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train_file <- "./data/pml-training.csv"
+test_file  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(train_file)) {
+  download.file(train_url, destfile = train_file)
+}
+if (!file.exists(test_file)) {
+  download.file(test_url, destfile = test_file)
+}
+
+train <- read.csv("./data/pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+test <- read.csv("./data/pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+### Data processing
+
+Only variables related to belt, forearm, arm, or dumbbell are kept.
+Variable with with near-zero variance and those with missing values are also
+removed from the data sets.
+
+```{r dataCleaning}
+sensors <- grep(pattern = "_belt|_forearm|_arm|_dumbbell", names(train))
+train <- train[, c(sensors, 160)]
+
+train_nzv <- nearZeroVar(train, saveMetrics = TRUE)
+train <- train[, train_nzv$nzv == FALSE]
+
+train <- train[, colSums(is.na(train)) == 0]
+test <- test[, names(test) %in% c(names(train), "problem_id")]
+```
+
+### Partitioning the training set
+
+The processed training set is partitioned into a training data set (60%) and a
+validation data set (40%).
+The validation data set will be used for cross-validation.
+
+```{r partition}
+set.seed(123)
+in_train <- createDataPartition(y = train$classe, p = 0.6, list = FALSE)
+training <- train[in_train, ]
+testing <- train[-in_train, ]
+```
+
+## Modelling
+
+A predictive model using Random Forest algorithm was fit with 3-fold cross
+validation.
+Variables are also centered and scaled.
+
+```{r randomForest}
+set.seed(123)
+ctrl_rf <- trainControl(method = "cv", 3)
+model_rf <- train(classe ~ .,
+                  method = "rf",
+                  preProcess = c("center", "scale"),
+                  trControl = ctrl_rf,
+                  data = training)
+model_rf$finalModel
+```
+
+Model's performance is then assessed on the validation data set.
+
+```{r errorEstimate}
+predict_rf <- predict(model_rf, testing)
+confusionMatrix(testing$classe, predict_rf)
+
+## accuracy
+postResample(predict_rf, testing$classe)
+
+## Out-of-sample error
+1 - as.numeric(confusionMatrix(testing$classe, predict_rf)$overall[1])
+```
+
+Model's accuracy is `r round(postResample(predict_rf, testing$classe)[1], 4)*100`%
+and the out-of-sample error is `r round(1 - as.numeric(confusionMatrix(testing$classe, predict_rf)$overall[1]), 4)*100`%.
+
+## Predicting for Test data set
+
+```{r prediction}
+predict(model_rf, test)
+```
